@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0" />
+<meta name="theme-color" content="#06070a" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#06070a" />
+
+<!-- iOS / Safari -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="SONAR" />
+<meta name="format-detection" content="telephone=no" />
+
+<!-- Generic -->
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="description" content="Live audio equalizer visualizer. Record sound, see it." />
+
+<title>SONAR — Live Audio Visualizer</title>
+
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/svg+xml" href="icon.svg" />
+
+<!-- iOS home-screen icons (iOS rounds the corners itself) -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+<link rel="apple-touch-icon" sizes="167x167" href="apple-touch-icon-167.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;500;700;900&family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #06070a;
+    --bg-2: #0c0e14;
+    --ink: #e8edf3;
+    --ink-dim: #6a7280;
+    --ink-faint: #2a2f3a;
+    --neon: #00ffe5;
+    --hot: #ff2d6f;
+    --amber: #ffb627;
+    --line: #161a23;
+    --grid: rgba(0, 255, 229, 0.04);
+    /* Responsive scale tokens (overridden by media queries) */
+    --header-py: 18px;
+    --header-px: 20px;
+    --controls-py: 16px;
+    --controls-px: 16px;
+    --brand-size: 22px;
+    --mic-size: 56px;
+    --hud-size: 9px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none; /* disable iOS long-press menu */
+    touch-action: manipulation;  /* kill 300ms tap delay on older iOS */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    position: fixed; /* iOS Safari: prevent rubber-band scrolling of body */
+    inset: 0;
+    /* CRT-ish background */
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(0, 255, 229, 0.08) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 100%, rgba(255, 45, 111, 0.06) 0%, transparent 55%),
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+    background-position: 0 0, 0 0, 0 0, 0 0;
+  }
+
+  /* Subtle scanlines */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.018) 0px,
+      rgba(255,255,255,0.018) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none;
+    z-index: 100;
+    mix-blend-mode: overlay;
+  }
+
+  /* Vignette */
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
+    pointer-events: none;
+    z-index: 101;
+  }
+
+  .app {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    /* Triple fallback: vh works everywhere, dvh on iOS 15.4+/Chrome 108+,
+       --app-height set by JS as bullet-proof fallback for older iOS. */
+    height: 100vh;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
+    display: grid;
+    /* minmax(0, 1fr) lets the stage row shrink when chrome is tall — without
+       it, default min-height: auto causes overflow on short iPhones. */
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    z-index: 1;
+  }
+
+  /* ─────────── HEADER ─────────── */
+  header {
+    padding: var(--header-py) var(--header-px) calc(var(--header-py) - 6px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(6,7,10,0.9), rgba(6,7,10,0));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .head-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .icon-btn {
+    width: 32px; height: 32px;
+    border: 1px solid var(--ink-faint);
+    background: transparent;
+    color: var(--ink-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    padding: 0;
+  }
+  .icon-btn:hover, .icon-btn:active {
+    border-color: var(--neon);
+    color: var(--neon);
+    box-shadow: 0 0 12px rgba(0,255,229,0.2);
+  }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .icon-btn[aria-pressed="true"] {
+    border-color: var(--neon);
+    color: var(--neon);
+    background: rgba(0,255,229,0.06);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-mark {
+    width: 28px; height: 28px;
+    border: 1px solid var(--neon);
+    border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 12px rgba(0,255,229,0.4), inset 0 0 8px rgba(0,255,229,0.2);
+  }
+  .logo-mark::before, .logo-mark::after {
+    content: "";
+    position: absolute;
+    border: 1px solid var(--neon);
+    border-radius: 50%;
+    inset: 4px;
+    opacity: 0.6;
+  }
+  .logo-mark::after {
+    inset: 9px;
+    opacity: 0.3;
+  }
+
+  .brand h1 {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 900;
+    font-size: var(--brand-size);
+    letter-spacing: 0.18em;
+    color: var(--ink);
+    text-shadow: 0 0 18px rgba(0,255,229,0.25);
+  }
+
+  .brand .sub {
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: var(--ink-dim);
+    margin-top: 2px;
+    text-transform: uppercase;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--ink-faint);
+    box-shadow: 0 0 0 0 rgba(255, 45, 111, 0);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+
+  .status[data-active="true"] .status-dot {
+    background: var(--hot);
+    animation: pulse 1.4s infinite;
+  }
+  .status[data-active="true"] {
+    color: var(--hot);
+  }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(255,45,111,0.7); }
+    70%  { box-shadow: 0 0 0 10px rgba(255,45,111,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,45,111,0); }
+  }
+
+  /* ─────────── STAGE / CANVAS ─────────── */
+  .stage {
+    position: relative;
+    overflow: hidden;
+    min-height: 0; /* allow grid to shrink this row on small viewports */
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(ellipse at center, rgba(0,255,229,0.04) 0%, transparent 60%),
+      var(--bg);
+  }
+
+  #viz {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* HUD overlays on stage */
+  .hud-corner {
+    position: absolute;
+    font-size: var(--hud-size);
+    letter-spacing: 0.25em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 2;
+    font-weight: 300;
+  }
+  .hud-tl { top: 14px; left: 16px; }
+  .hud-tr { top: 14px; right: 16px; text-align: right; }
+  .hud-bl { bottom: 14px; left: 16px; }
+  .hud-br { bottom: 14px; right: 16px; text-align: right; }
+
+  .hud-corner .val {
+    color: var(--neon);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Corner brackets */
+  .stage::before, .stage::after,
+  .stage > .bracket-bl, .stage > .bracket-br {
+    content: "";
+    position: absolute;
+    width: 18px; height: 18px;
+    border: 1px solid var(--neon);
+    opacity: 0.5;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .stage::before { top: 8px; left: 8px; border-right: none; border-bottom: none; }
+  .stage::after  { top: 8px; right: 8px; border-left: none; border-bottom: none; }
+  .stage > .bracket-bl { bottom: 8px; left: 8px; border-right: none; border-top: none; }
+  .stage > .bracket-br { bottom: 8px; right: 8px; border-left: none; border-top: none; }
+
+  /* Idle overlay */
+  .idle {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    z-index: 3;
+    transition: opacity 0.5s, transform 0.5s;
+  }
+  .idle.hidden {
+    opacity: 0;
+    transform: scale(0.95);
+    pointer-events: none;
+  }
+
+  .idle-title {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 300;
+    font-size: clamp(28px, 8vw, 56px);
+    letter-spacing: 0.04em;
+    line-height: 1;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+  .idle-title em {
+    font-style: normal;
+    font-weight: 900;
+    color: var(--neon);
+    text-shadow: 0 0 30px rgba(0,255,229,0.5);
+  }
+
+  .idle-desc {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    max-width: 380px;
+    line-height: 1.7;
+    margin-bottom: 28px;
+  }
+
+  .idle-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 28px;
+    background: transparent;
+    border: 1px solid var(--neon);
+    color: var(--neon);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 0 24px rgba(0,255,229,0.15), inset 0 0 24px rgba(0,255,229,0.05);
+  }
+  .idle-cta:hover, .idle-cta:active {
+    background: var(--neon);
+    color: var(--bg);
+    box-shadow: 0 0 40px rgba(0,255,229,0.6);
+  }
+  .idle-cta::before {
+    content: "▶";
+    font-size: 9px;
+  }
+
+  .err {
+    color: var(--hot);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-top: 16px;
+    min-height: 14px;
+  }
+
+  /* ─────────── CONTROLS ─────────── */
+  .controls {
+    background: var(--bg-2);
+    border-top: 1px solid var(--line);
+    /* Bottom safe-area is already handled by .app — don't double-apply */
+    padding: var(--controls-py) var(--controls-px);
+  }
+
+  .effects {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 4px 12px;
+    margin: 0 -4px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scroll-snap-type: x proximity;
+  }
+  .effects::-webkit-scrollbar { display: none; }
+
+  .effect-chip {
+    flex-shrink: 0;
+    padding: 11px 18px;
+    background: transparent;
+    border: 1px solid var(--ink-faint);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.18s;
+    scroll-snap-align: start;
+    position: relative;
+    min-width: max-content;
+  }
+
+  .effect-chip:hover {
+    border-color: var(--ink-dim);
+    color: var(--ink);
+  }
+
+  .effect-chip[aria-selected="true"] {
+    border-color: var(--neon);
+    color: var(--neon);
+    background: rgba(0,255,229,0.06);
+    box-shadow: 0 0 16px rgba(0,255,229,0.25), inset 0 0 16px rgba(0,255,229,0.08);
+  }
+
+  .effect-chip .num {
+    color: var(--ink-faint);
+    margin-right: 6px;
+    font-weight: 300;
+  }
+  .effect-chip[aria-selected="true"] .num {
+    color: var(--neon);
+    opacity: 0.6;
+  }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 4px;
+  }
+
+  .meter-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .meter-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .meter-label .lvl {
+    color: var(--neon);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .meter {
+    height: 4px;
+    background: var(--line);
+    position: relative;
+    overflow: hidden;
+  }
+  .meter-fill {
+    position: absolute;
+    inset: 0 100% 0 0;
+    background: linear-gradient(90deg, var(--neon), var(--amber) 70%, var(--hot));
+    transition: right 0.05s linear;
+    box-shadow: 0 0 10px var(--neon);
+  }
+
+  .mic-btn {
+    width: var(--mic-size);
+    height: var(--mic-size);
+    border-radius: 50%;
+    border: 1px solid var(--neon);
+    background: transparent;
+    color: var(--neon);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    box-shadow: 0 0 18px rgba(0,255,229,0.2), inset 0 0 18px rgba(0,255,229,0.05);
+  }
+  .mic-btn:active { transform: scale(0.94); }
+  .mic-btn[data-active="true"] {
+    background: var(--hot);
+    border-color: var(--hot);
+    color: var(--bg);
+    box-shadow: 0 0 24px rgba(255,45,111,0.5);
+  }
+  .mic-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* ─────────── INSTALL HINT ─────────── */
+  .install-hint {
+    position: fixed;
+    bottom: calc(20px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%) translateY(160%);
+    background: var(--bg-2);
+    border: 1px solid var(--neon);
+    color: var(--ink);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 50;
+    box-shadow: 0 0 24px rgba(0,255,229,0.25);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100vw - 32px);
+  }
+  .install-hint.visible {
+    transform: translateX(-50%) translateY(0);
+  }
+  .install-hint .x {
+    color: var(--ink-dim);
+    cursor: pointer;
+    padding: 0 4px 0 10px;
+    border-left: 1px solid var(--ink-faint);
+    font-size: 16px;
+    line-height: 1;
+  }
+  .install-hint .ios-share {
+    display: inline-block;
+    width: 14px;
+    height: 18px;
+    vertical-align: -4px;
+    margin: 0 2px;
+  }
+  .install-hint.ios {
+    text-transform: none;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .install-hint.ios strong {
+    color: var(--neon);
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: block;
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  /* ─────────── RESPONSIVE / UNIVERSAL ─────────── */
+
+  /* Landscape phones — squeeze the chrome to give the canvas room */
+  @media (orientation: landscape) and (max-height: 500px) {
+    :root {
+      --header-py: 8px;
+      --header-px: 14px;
+      --controls-py: 8px;
+      --controls-px: 12px;
+      --brand-size: 16px;
+      --mic-size: 44px;
+      --hud-size: 8px;
+    }
+    .brand .sub { display: none; }
+    .effects { padding: 2px 4px 8px; }
+    .effect-chip { padding: 8px 14px; font-size: 9px; }
+    .meter-label { font-size: 8px; }
+    .hud-corner { font-size: 8px; }
+    .hud-tl, .hud-tr { top: 8px; }
+    .hud-bl, .hud-br { bottom: 8px; }
+  }
+
+  /* Very short viewports — phones in landscape, foldables half-folded.
+     The idle screen content can otherwise overflow the stage. */
+  @media (max-height: 420px) {
+    .idle { padding: 12px; }
+    .idle-title { font-size: clamp(20px, 5.5vw, 32px); margin-bottom: 8px; }
+    .idle-desc { font-size: 10px; line-height: 1.5; margin-bottom: 16px; max-width: 320px; }
+    .idle-cta { padding: 10px 22px; font-size: 11px; }
+  }
+
+  /* Tablets — give the visualizer more room and breathing space */
+  @media (min-width: 768px) {
+    :root {
+      --header-py: 22px;
+      --header-px: 32px;
+      --controls-py: 20px;
+      --controls-px: 28px;
+      --brand-size: 26px;
+      --mic-size: 64px;
+      --hud-size: 10px;
+    }
+    .effect-chip { padding: 13px 22px; font-size: 11px; }
+    .idle-title { font-size: clamp(40px, 6vw, 72px); }
+    .idle-desc { font-size: 12px; }
+  }
+
+  /* Desktop / large screens */
+  @media (min-width: 1200px) {
+    :root {
+      --hud-size: 11px;
+    }
+    .stage { background: radial-gradient(ellipse at center, rgba(0,255,229,0.06) 0%, transparent 60%), var(--bg); }
+  }
+
+  /* Pointer-fine devices (desktop with mouse) — show keyboard hints */
+  @media (hover: hover) and (pointer: fine) {
+    .effect-chip::after {
+      content: attr(data-key);
+      margin-left: 8px;
+      padding: 1px 5px;
+      border: 1px solid currentColor;
+      opacity: 0.4;
+      font-size: 8px;
+      vertical-align: 1px;
+    }
+    .effect-chip[aria-selected="true"]::after { opacity: 0.7; }
+  }
+
+  /* Respect OS-level reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .status[data-active="true"] .status-dot { animation: none; }
+  }
+
+  /* True fullscreen mode — hide chrome and let canvas fill everything */
+  .app.fullscreen header,
+  .app.fullscreen .controls {
+    display: none;
+  }
+  .app.fullscreen {
+    grid-template-rows: 1fr;
+  }
+  .app.fullscreen .stage { border: none; }
+  /* In-stage exit-fullscreen pill */
+  .fs-exit {
+    position: absolute;
+    /* Parent .stage is already inside .app's safe-area padding — don't add it again */
+    top: 14px;
+    right: 14px;
+    z-index: 10;
+    border: 1px solid var(--ink-faint);
+    background: rgba(6,7,10,0.6);
+    backdrop-filter: blur(6px);
+    color: var(--ink-dim);
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: none;
+  }
+  .app.fullscreen .fs-exit { display: block; }
+  .fs-exit:hover { color: var(--neon); border-color: var(--neon); }
+
+  /* Old fallback stays for very short heights even in portrait
+     (iPhone SE 1st gen, very small Androids) */
+  @media (max-height: 600px) and (orientation: portrait) {
+    :root {
+      --header-py: 10px;
+      --header-px: 16px;
+      --controls-py: 10px;
+      --brand-size: 18px;
+      --mic-size: 48px;
+    }
+    .brand .sub { display: none; }
+    .effect-chip { padding: 9px 14px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header>
+    <div class="brand">
+      <div class="logo-mark"></div>
+      <div>
+        <h1>SONAR</h1>
+        <div class="sub">v1.0 · live audio</div>
+      </div>
+    </div>
+    <div class="head-right">
+      <div class="status" id="status" data-active="false">
+        <span class="status-dot"></span>
+        <span class="status-text">Standby</span>
+      </div>
+      <button class="icon-btn" id="fs-toggle" aria-label="Toggle fullscreen" aria-pressed="false" title="Fullscreen (F)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="bracket-bl"></div>
+    <div class="bracket-br"></div>
+    <button class="fs-exit" id="fs-exit" aria-label="Exit fullscreen">Exit ✕</button>
+
+    <canvas id="viz"></canvas>
+
+    <div class="hud-corner hud-tl">
+      Mode<br /><span class="val" id="hud-mode">Bars</span>
+    </div>
+    <div class="hud-corner hud-tr">
+      Sample Rate<br /><span class="val" id="hud-sr">— Hz</span>
+    </div>
+    <div class="hud-corner hud-bl">
+      Peak<br /><span class="val" id="hud-peak">0.00</span> dB
+    </div>
+    <div class="hud-corner hud-br">
+      FPS<br /><span class="val" id="hud-fps">0</span>
+    </div>
+
+    <div class="idle" id="idle">
+      <div class="idle-title">listen<br /><em>see</em></div>
+      <div class="idle-desc">Tap to grant microphone access. Sound becomes light.</div>
+      <button class="idle-cta" id="start-btn">Engage Microphone</button>
+      <div class="err" id="err"></div>
+    </div>
+  </main>
+
+  <div class="controls">
+    <div class="effects" id="effects" role="tablist" aria-label="Visualizer effects"></div>
+    <div class="control-row">
+      <div class="meter-wrap">
+        <div class="meter-label">
+          <span>Input Level</span>
+          <span class="lvl" id="lvl">0%</span>
+        </div>
+        <div class="meter"><div class="meter-fill" id="meter-fill"></div></div>
+      </div>
+      <button class="mic-btn" id="mic-toggle" data-active="false" aria-label="Toggle microphone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"/>
+          <path d="M5 11a7 7 0 0 0 14 0"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="8" y1="22" x2="16" y2="22"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="install-hint" id="install-hint">
+  <span id="install-hint-content">Install SONAR</span>
+  <span class="x" id="install-dismiss">×</span>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   SONAR — Live Audio Visualizer PWA
+   ════════════════════════════════════════════════════════════ */
+
+(() => {
+  'use strict';
+
+  /* ─── DOM ─── */
+  const canvas    = document.getElementById('viz');
+  const ctx       = canvas.getContext('2d');
+  const idleEl    = document.getElementById('idle');
+  const startBtn  = document.getElementById('start-btn');
+  const errEl     = document.getElementById('err');
+  const statusEl  = document.getElementById('status');
+  const statusTxt = statusEl.querySelector('.status-text');
+  const micBtn    = document.getElementById('mic-toggle');
+  const effectsEl = document.getElementById('effects');
+  const meterFill = document.getElementById('meter-fill');
+  const lvlEl     = document.getElementById('lvl');
+  const hudMode   = document.getElementById('hud-mode');
+  const hudSr     = document.getElementById('hud-sr');
+  const hudPeak   = document.getElementById('hud-peak');
+  const hudFps    = document.getElementById('hud-fps');
+
+  /* ─── State ─── */
+  let audioCtx = null;
+  let stream = null;
+  let analyser = null;
+  let source = null;
+  let freqData = null;   // Uint8Array — frequency domain
+  let timeData = null;   // Uint8Array — time domain
+  let running = false;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let W = 0, H = 0;
+  let currentEffect = 0;
+  let particles = [];
+  let rings = [];        // for tunnel
+  let lastFrame = performance.now();
+  let fpsAcc = 0, fpsCnt = 0, fpsLast = performance.now();
+  let wakeLock = null;   // ScreenWakeLock — keeps screen on while running
+
+  /* ─── Performance tier ─── */
+  // Best-effort device-capability sniff. Defaults to "high" if unknown.
+  // Mobile UAs and low-core / low-memory devices drop down a tier.
+  const deviceMem = navigator.deviceMemory || 4;          // GB, undefined on iOS Safari
+  const cores = navigator.hardwareConcurrency || 4;
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  let perfTier = 'high';
+  if (deviceMem <= 2 || cores <= 2) perfTier = 'low';
+  else if (isMobile && (deviceMem <= 4 || cores <= 4)) perfTier = 'mid';
+
+  const PERF = {
+    low:  { fft: 1024, particleCap: 200, smoothing: 0.82 },
+    mid:  { fft: 2048, particleCap: 400, smoothing: 0.78 },
+    high: { fft: 2048, particleCap: 600, smoothing: 0.78 },
+  }[perfTier];
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ─── Effects registry ─── */
+  const EFFECTS = [
+    { name: 'Bars',      draw: drawBars },
+    { name: 'Mirror',    draw: drawMirror },
+    { name: 'Waveform',  draw: drawWaveform },
+    { name: 'Radial',    draw: drawRadial },
+    { name: 'Particles', draw: drawParticles },
+    { name: 'Tunnel',    draw: drawTunnel },
+  ];
+
+  /* ─── Build effect chips ─── */
+  EFFECTS.forEach((e, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'effect-chip';
+    btn.role = 'tab';
+    btn.setAttribute('aria-selected', i === 0);
+    btn.setAttribute('data-key', String(i + 1));
+    btn.innerHTML = `<span class="num">${String(i+1).padStart(2,'0')}</span>${e.name}`;
+    btn.addEventListener('click', () => { selectEffect(i); hapticTap(); });
+    effectsEl.appendChild(btn);
+  });
+
+  function selectEffect(i) {
+    currentEffect = i;
+    [...effectsEl.children].forEach((c, idx) => {
+      c.setAttribute('aria-selected', idx === i);
+    });
+    hudMode.textContent = EFFECTS[i].name;
+    // Reset transient state for some effects
+    particles = [];
+    rings = [];
+    // Scroll selected chip into view (helps when triggered by keyboard)
+    const sel = effectsEl.children[i];
+    if (sel && sel.scrollIntoView) {
+      sel.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }
+
+  /* ─── Resize ─── */
+  const stageEl = document.getElementById('stage');
+  const rootEl = document.documentElement;
+
+  // ── iOS-CRITICAL bullet-proof viewport fallback ──
+  // Old iOS (15.0–15.3) doesn't support `dvh`. `100vh` on iOS Safari includes the
+  // URL-bar area, so the bottom of the page sits BEHIND the toolbar — that's the
+  // "doesn't fit" symptom. Setting --app-height from window.innerHeight always
+  // matches the actually-visible area.
+  function setAppHeight() {
+    // visualViewport is the most accurate when keyboard is shown, but
+    // window.innerHeight is the safest default for normal use.
+    const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    rootEl.style.setProperty('--app-height', h + 'px');
+  }
+  setAppHeight();
+  window.addEventListener('resize', setAppHeight);
+  window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 250));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', setAppHeight);
+  }
+
+  function resize() {
+    const r = stageEl.getBoundingClientRect();
+    W = r.width;
+    H = r.height;
+    dpr = Math.min(window.devicePixelRatio || 1, perfTier === 'low' ? 1 : 2);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  // ResizeObserver handles every cause of size change uniformly:
+  // rotation, URL bar collapse, fullscreen toggle, keyboard show/hide, foldable hinge.
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(() => resize()).observe(stageEl);
+  } else {
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+  }
+  // visualViewport fires on iOS keyboard / URL-bar transitions
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resize);
+  }
+
+  /* ─── Audio start ─── */
+  async function startAudio() {
+    errEl.textContent = '';
+
+    // Feature check first — surface a clear message on old iOS / insecure context
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        errEl.textContent = 'HTTPS required for microphone access';
+      } else {
+        errEl.textContent = 'Microphone API not supported on this browser';
+      }
+      return;
+    }
+
+    // ── iOS-CRITICAL ──
+    // AudioContext MUST be created synchronously inside the user-gesture handler,
+    // BEFORE any `await`. iOS Safari treats the post-await code as outside the
+    // gesture and will leave the context stuck in 'suspended'.
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        errEl.textContent = 'Web Audio not supported on this browser';
+        return;
+      }
+      if (!audioCtx || audioCtx.state === 'closed') {
+        audioCtx = new AC();
+      }
+      // Resume immediately — iOS often creates contexts in 'suspended' state.
+      // Resume is also valid against an 'interrupted' context (post phone call etc).
+      if (audioCtx.state !== 'running') {
+        try { await audioCtx.resume(); } catch (_) { /* will retry below */ }
+      }
+    } catch (e) {
+      console.error('AudioContext init failed', e);
+      errEl.textContent = 'Audio engine failed to start';
+      return;
+    }
+
+    // Now request the mic
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+        video: false,
+      });
+
+      // iOS sometimes drops back to suspended after the await; resume once more.
+      if (audioCtx.state !== 'running') {
+        try { await audioCtx.resume(); } catch (_) {}
+      }
+
+      source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = PERF.fft;
+      analyser.smoothingTimeConstant = PERF.smoothing;
+      source.connect(analyser);
+
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      timeData = new Uint8Array(analyser.fftSize);
+
+      // Listen for iOS audio-session interruptions (phone call, Siri, other media)
+      audioCtx.addEventListener('statechange', onAudioStateChange);
+
+      hudSr.textContent = audioCtx.sampleRate.toLocaleString() + ' Hz';
+      idleEl.classList.add('hidden');
+      statusEl.dataset.active = 'true';
+      statusTxt.textContent = 'Live · Recording';
+      micBtn.dataset.active = 'true';
+      running = true;
+
+      // Keep screen awake while visualizing — critical for live use
+      acquireWakeLock();
+      hapticTap();
+
+      resize();
+      requestAnimationFrame(loop);
+    } catch (e) {
+      console.error(e);
+      let msg = 'Microphone access denied';
+      if (e.name === 'NotAllowedError')      msg = 'Permission denied — enable mic in settings';
+      else if (e.name === 'NotFoundError')   msg = 'No microphone detected';
+      else if (e.name === 'NotReadableError') msg = 'Mic is in use by another app';
+      else if (e.name === 'SecurityError')   msg = 'Blocked — site must be served over HTTPS';
+      else if (location.protocol !== 'https:' && location.hostname !== 'localhost')
+        msg = 'HTTPS required for microphone access';
+      errEl.textContent = msg;
+
+      // Cleanup partial init
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    }
+  }
+
+  function onAudioStateChange() {
+    if (!audioCtx) return;
+    // 'interrupted' is iOS-specific (Siri / phone call / other audio session)
+    if (audioCtx.state === 'interrupted' || audioCtx.state === 'suspended') {
+      if (running && !document.hidden) {
+        // Try to resume — won't succeed without a gesture if truly interrupted
+        audioCtx.resume().catch(() => {
+          // Fall back to a clean stop so the user can re-engage
+          stopAudio();
+          errEl.textContent = 'Audio interrupted — tap to resume';
+        });
+      }
+    }
+  }
+
+  function stopAudio() {
+    running = false;
+    releaseWakeLock();
+    hapticTap();
+    if (audioCtx) {
+      audioCtx.removeEventListener('statechange', onAudioStateChange);
+    }
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close().catch(() => {});
+    stream = null; audioCtx = null; analyser = null; source = null;
+    statusEl.dataset.active = 'false';
+    statusTxt.textContent = 'Standby';
+    micBtn.dataset.active = 'false';
+    idleEl.classList.remove('hidden');
+    // Clear canvas
+    ctx.fillStyle = 'rgba(6,7,10,1)';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* ─── Screen Wake Lock ─── */
+  async function acquireWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) {
+      // Permission denied or page not visible — non-fatal
+      console.warn('Wake lock unavailable:', e.message);
+    }
+  }
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+  // Re-acquire if the page becomes visible again while running
+  // (browsers auto-release wake locks when the page is hidden)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && running && !wakeLock) {
+      acquireWakeLock();
+    }
+  });
+
+  /* ─── Haptic feedback (Android, no-op elsewhere) ─── */
+  function hapticTap() {
+    if (navigator.vibrate) {
+      try { navigator.vibrate(8); } catch (_) {}
+    }
+  }
+
+  startBtn.addEventListener('click', startAudio);
+  micBtn.addEventListener('click', () => {
+    if (running) stopAudio(); else startAudio();
+  });
+
+  /* ─── Fullscreen ─── */
+  const appEl = document.querySelector('.app');
+  const fsBtn = document.getElementById('fs-toggle');
+  const fsExit = document.getElementById('fs-exit');
+  let fsActive = false;
+
+  function toggleFullscreen() {
+    fsActive = !fsActive;
+    appEl.classList.toggle('fullscreen', fsActive);
+    fsBtn.setAttribute('aria-pressed', String(fsActive));
+    // Try the real Fullscreen API too — gives true OS-level fullscreen on
+    // desktop / Android Chrome. iOS Safari doesn't support it, but the CSS
+    // class still hides chrome and gives standalone-style fullscreen.
+    const el = document.documentElement;
+    if (fsActive) {
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) req.call(el).catch(() => {});
+    } else {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {
+        exit.call(document).catch(() => {});
+      }
+    }
+    // Resize after the layout settles
+    requestAnimationFrame(() => requestAnimationFrame(resize));
+    hapticTap();
+  }
+  fsBtn.addEventListener('click', toggleFullscreen);
+  fsExit.addEventListener('click', toggleFullscreen);
+  // Sync state if user exits fullscreen via Escape key
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(ev =>
+    document.addEventListener(ev, () => {
+      const inFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      if (!inFs && fsActive) {
+        fsActive = false;
+        appEl.classList.remove('fullscreen');
+        fsBtn.setAttribute('aria-pressed', 'false');
+        requestAnimationFrame(() => requestAnimationFrame(resize));
+      }
+    })
+  );
+
+  /* ─── Keyboard shortcuts ─── */
+  document.addEventListener('keydown', (e) => {
+    // Don't hijack typing in any editable element
+    if (e.target && (e.target.matches('input, textarea, [contenteditable]'))) return;
+
+    // 1–6 → effect select
+    if (e.key >= '1' && e.key <= String(EFFECTS.length)) {
+      e.preventDefault();
+      selectEffect(parseInt(e.key, 10) - 1);
+      return;
+    }
+    // Space → toggle mic
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (running) stopAudio(); else startAudio();
+      return;
+    }
+    // F → fullscreen
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+    // Esc → if running and fullscreen, exit fullscreen first; else stop audio
+    if (e.key === 'Escape') {
+      if (fsActive) { /* handled by fullscreenchange */ return; }
+      if (running) { e.preventDefault(); stopAudio(); }
+    }
+  });
+
+  /* ─── Permissions API — early state check ─── */
+  // If permission was already denied previously, surface that on the idle screen
+  // so the user knows they need to fix the OS-level setting.
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'microphone' }).then((status) => {
+      const update = () => {
+        if (status.state === 'denied') {
+          errEl.textContent = 'Mic blocked — enable in browser/site settings';
+        }
+      };
+      update();
+      status.addEventListener('change', update);
+    }).catch(() => { /* unsupported, no-op */ });
+  }
+
+  /* ─── Main loop ─── */
+  function loop(now) {
+    if (!running) return;
+    requestAnimationFrame(loop);
+
+    analyser.getByteFrequencyData(freqData);
+    analyser.getByteTimeDomainData(timeData);
+
+    // RMS level for meter
+    let sum = 0;
+    for (let i = 0; i < timeData.length; i++) {
+      const v = (timeData[i] - 128) / 128;
+      sum += v * v;
+    }
+    const rms = Math.sqrt(sum / timeData.length);
+    const lvlPct = Math.min(100, Math.round(rms * 220));
+    meterFill.style.right = (100 - lvlPct) + '%';
+    lvlEl.textContent = lvlPct + '%';
+    const dB = rms > 0 ? (20 * Math.log10(rms)).toFixed(1) : '-∞';
+    hudPeak.textContent = dB;
+
+    // Trail effect — semi-transparent fill instead of clear
+    ctx.fillStyle = 'rgba(6, 7, 10, 0.22)';
+    ctx.fillRect(0, 0, W, H);
+
+    EFFECTS[currentEffect].draw(now, rms);
+
+    // FPS
+    fpsCnt++;
+    if (now - fpsLast > 500) {
+      hudFps.textContent = Math.round((fpsCnt * 1000) / (now - fpsLast));
+      fpsCnt = 0;
+      fpsLast = now;
+    }
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 1 — BARS
+     Classic frequency bars with neon gradient
+  ════════════════════════════════════════════════════════ */
+  function drawBars() {
+    const N = 64;
+    const step = Math.floor(freqData.length / N / 2); // emphasize lower freqs
+    const gap = 2;
+    const barW = (W - gap * (N + 1)) / N;
+    const baseY = H * 0.92;
+
+    for (let i = 0; i < N; i++) {
+      const v = freqData[i * step] / 255;
+      const h = v * H * 0.78;
+      const x = gap + i * (barW + gap);
+      const y = baseY - h;
+
+      // Bar gradient
+      const grad = ctx.createLinearGradient(0, baseY, 0, baseY - H * 0.78);
+      grad.addColorStop(0,   '#00ffe5');
+      grad.addColorStop(0.6, '#00ffe5');
+      grad.addColorStop(0.85,'#ffb627');
+      grad.addColorStop(1,   '#ff2d6f');
+      ctx.fillStyle = grad;
+      ctx.shadowColor = '#00ffe5';
+      ctx.shadowBlur = 12;
+      ctx.fillRect(x, y, barW, h);
+
+      // Cap
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(x, y - 2, barW, 2);
+    }
+    ctx.shadowBlur = 0;
+
+    // Baseline
+    ctx.strokeStyle = 'rgba(0,255,229,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, baseY + 1);
+    ctx.lineTo(W, baseY + 1);
+    ctx.stroke();
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 2 — MIRROR
+     Bars mirrored top + bottom, cyan/magenta split
+  ════════════════════════════════════════════════════════ */
+  function drawMirror() {
+    const N = 80;
+    const step = Math.floor(freqData.length / N / 2);
+    const gap = 1;
+    const barW = (W - gap * (N + 1)) / N;
+    const midY = H / 2;
+    const maxH = H * 0.42;
+
+    for (let i = 0; i < N; i++) {
+      const v = freqData[i * step] / 255;
+      const h = v * maxH;
+      const x = gap + i * (barW + gap);
+
+      // Top — cyan
+      ctx.fillStyle = `hsla(170, 100%, ${40 + v*30}%, ${0.5 + v*0.5})`;
+      ctx.shadowColor = '#00ffe5';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(x, midY - h, barW, h);
+
+      // Bottom — magenta
+      ctx.fillStyle = `hsla(340, 100%, ${50 + v*20}%, ${0.5 + v*0.5})`;
+      ctx.shadowColor = '#ff2d6f';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(x, midY, barW, h);
+    }
+    ctx.shadowBlur = 0;
+
+    // Center line
+    ctx.strokeStyle = 'rgba(232,237,243,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(W, midY);
+    ctx.stroke();
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 3 — WAVEFORM
+     Oscilloscope time-domain trace with glow
+  ════════════════════════════════════════════════════════ */
+  function drawWaveform() {
+    const midY = H / 2;
+    const step = W / timeData.length;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(0,255,229,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i <= 8; i++) {
+      const y = (H / 8) * i;
+      ctx.moveTo(0, y); ctx.lineTo(W, y);
+    }
+    for (let i = 0; i <= 12; i++) {
+      const x = (W / 12) * i;
+      ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    }
+    ctx.stroke();
+
+    // Wave — multi-pass for thickness + glow
+    const drawPass = (lineW, alpha, color) => {
+      ctx.lineWidth = lineW;
+      ctx.strokeStyle = color.replace('ALPHA', alpha);
+      ctx.beginPath();
+      for (let i = 0; i < timeData.length; i++) {
+        const v = (timeData[i] - 128) / 128;
+        const x = i * step;
+        const y = midY + v * H * 0.42;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+
+    ctx.shadowColor = '#00ffe5';
+    ctx.shadowBlur = 16;
+    drawPass(1, '0.18', 'rgba(0,255,229,ALPHA)');
+    drawPass(2, '0.6',  'rgba(0,255,229,ALPHA)');
+    ctx.shadowBlur = 0;
+    drawPass(1.2, '1', 'rgba(255,255,255,ALPHA)');
+
+    // Center reference
+    ctx.strokeStyle = 'rgba(232,237,243,0.1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath();
+    ctx.moveTo(0, midY); ctx.lineTo(W, midY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 4 — RADIAL
+     Frequency bars radiating from center
+  ════════════════════════════════════════════════════════ */
+  function drawRadial(now) {
+    const cx = W / 2, cy = H / 2;
+    const N = 96;
+    const step = Math.floor(freqData.length / N / 2);
+    const r0 = Math.min(W, H) * 0.16;
+    const rMax = Math.min(W, H) * 0.42;
+    const rotation = now * 0.00012;
+
+    // Inner ring
+    ctx.strokeStyle = 'rgba(0,255,229,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    for (let i = 0; i < N; i++) {
+      const v = freqData[i * step] / 255;
+      const len = v * (rMax - r0);
+      const a = (i / N) * Math.PI * 2 + rotation;
+      const x1 = cx + Math.cos(a) * r0;
+      const y1 = cy + Math.sin(a) * r0;
+      const x2 = cx + Math.cos(a) * (r0 + len);
+      const y2 = cy + Math.sin(a) * (r0 + len);
+
+      const hue = 170 + v * 200;
+      ctx.strokeStyle = `hsl(${hue}, 100%, ${50 + v*20}%)`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Center pulse based on bass
+    let bass = 0;
+    for (let i = 0; i < 16; i++) bass += freqData[i];
+    bass /= (16 * 255);
+    const pulseR = r0 * 0.55 + bass * r0 * 0.5;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
+    grad.addColorStop(0, `rgba(0,255,229,${0.35 + bass * 0.5})`);
+    grad.addColorStop(1, 'rgba(0,255,229,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, pulseR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 5 — PARTICLES
+     Bass-reactive particle bursts
+  ════════════════════════════════════════════════════════ */
+  function drawParticles() {
+    // Compute energy bands
+    let bass = 0, mid = 0, treble = 0;
+    for (let i = 0; i < 16; i++)             bass += freqData[i];
+    for (let i = 16; i < 80; i++)            mid += freqData[i];
+    for (let i = 80; i < freqData.length; i++) treble += freqData[i];
+    bass /= (16 * 255);
+    mid /= (64 * 255);
+    treble /= ((freqData.length - 80) * 255);
+
+    // Spawn particles based on bass
+    const spawnCount = Math.floor(bass * 8);
+    for (let i = 0; i < spawnCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1.5 + bass * 6 + Math.random() * 2;
+      particles.push({
+        x: W / 2,
+        y: H / 2,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        size: 1 + Math.random() * 3 + bass * 2,
+        hue: 170 + Math.random() * 60 + treble * 100,
+      });
+    }
+
+    // Cap particles
+    if (particles.length > PERF.particleCap) particles.splice(0, particles.length - PERF.particleCap);
+
+    // Update + draw
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.985;
+      p.vy *= 0.985;
+      p.life -= 0.012;
+
+      if (p.life <= 0 || p.x < -20 || p.x > W + 20 || p.y < -20 || p.y > H + 20) {
+        particles.splice(i, 1);
+        continue;
+      }
+
+      ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${p.life})`;
+      ctx.shadowColor = `hsl(${p.hue}, 100%, 60%)`;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Center core
+    const coreR = 8 + mid * 30;
+    const grad = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, coreR * 2);
+    grad.addColorStop(0, `rgba(255,255,255,${0.6 + bass * 0.4})`);
+    grad.addColorStop(0.4, `rgba(0,255,229,${0.4 + bass * 0.4})`);
+    grad.addColorStop(1, 'rgba(0,255,229,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(W/2, H/2, coreR * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* ════════════════════════════════════════════════════════
+     EFFECT 6 — TUNNEL
+     3D-feeling tunnel of rings reacting to audio
+  ════════════════════════════════════════════════════════ */
+  function drawTunnel(now) {
+    const cx = W / 2, cy = H / 2;
+
+    // Bass for ring spawn
+    let bass = 0;
+    for (let i = 0; i < 12; i++) bass += freqData[i];
+    bass /= (12 * 255);
+
+    // Spawn ring
+    if (now - (drawTunnel._lastSpawn || 0) > 90 - bass * 60) {
+      rings.push({
+        r: 8,
+        speed: 2 + bass * 5,
+        hue: 170 + bass * 180,
+        intensity: 0.6 + bass * 0.4,
+        seg: 24 + Math.floor(bass * 24),
+      });
+      drawTunnel._lastSpawn = now;
+    }
+
+    // Update rings
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const ring = rings[i];
+      ring.r += ring.speed * (1 + ring.r * 0.005);
+      if (ring.r > Math.max(W, H)) {
+        rings.splice(i, 1);
+        continue;
+      }
+      const alpha = ring.intensity * (1 - ring.r / Math.max(W, H));
+
+      // Use frequency data to deform ring
+      ctx.strokeStyle = `hsla(${ring.hue}, 100%, 60%, ${alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = `hsl(${ring.hue}, 100%, 60%)`;
+      ctx.shadowBlur = 12;
+
+      ctx.beginPath();
+      const segs = ring.seg;
+      for (let s = 0; s <= segs; s++) {
+        const angle = (s / segs) * Math.PI * 2;
+        const fIdx = Math.floor((s / segs) * 64);
+        const def = (freqData[fIdx] / 255) * 30;
+        const r = ring.r + def;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Vanishing point glow
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 80);
+    grad.addColorStop(0, `rgba(0,255,229,${0.4 + bass * 0.5})`);
+    grad.addColorStop(1, 'rgba(0,255,229,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* ─── Init ─── */
+  resize();
+
+  // Honor `?fx=N` deep link from manifest shortcuts (e.g. ./index.html?fx=4)
+  const fxParam = parseInt(new URLSearchParams(location.search).get('fx'), 10);
+  const initialFx = (Number.isFinite(fxParam) && fxParam >= 0 && fxParam < EFFECTS.length) ? fxParam : 0;
+  selectEffect(initialFx);
+
+  // Paint initial state to canvas
+  ctx.fillStyle = '#06070a';
+  ctx.fillRect(0, 0, W, H);
+
+  /* ─── PWA Install handling ─── */
+  let deferredPrompt = null;
+  const installHint = document.getElementById('install-hint');
+  const installContent = document.getElementById('install-hint-content');
+  const installDismiss = document.getElementById('install-dismiss');
+
+  // Detection
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                       window.navigator.standalone === true;
+  const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(navigator.userAgent);
+
+  // Android / desktop Chromium path
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    if (sessionStorage.getItem('sonar-install-dismissed') !== '1') {
+      installContent.textContent = 'Install SONAR';
+      installHint.classList.remove('ios');
+      installHint.classList.add('visible');
+    }
+  });
+
+  // iOS path: no beforeinstallprompt — show Share-icon instructions instead
+  if (isIOS && !isStandalone && isSafari &&
+      sessionStorage.getItem('sonar-install-dismissed') !== '1') {
+    // Slight delay so user can orient first
+    setTimeout(() => {
+      installContent.innerHTML =
+        '<span><strong>Install SONAR</strong>Tap ' +
+        '<svg class="ios-share" viewBox="0 0 24 30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M12 3 V 19"/>' +
+          '<path d="M6 9 L12 3 L18 9"/>' +
+          '<path d="M5 13 H3 V27 H21 V13 H19"/>' +
+        '</svg> ' +
+        'then “Add to Home Screen”</span>';
+      installHint.classList.add('ios', 'visible');
+    }, 1200);
+  }
+
+  installHint.addEventListener('click', async (e) => {
+    if (e.target === installDismiss) return;
+    if (deferredPrompt) {
+      installHint.classList.remove('visible');
+      deferredPrompt.prompt();
+      deferredPrompt = null;
+    }
+    // On iOS: nothing to programmatically trigger — banner just informs
+  });
+
+  installDismiss.addEventListener('click', (e) => {
+    e.stopPropagation();
+    installHint.classList.remove('visible');
+    sessionStorage.setItem('sonar-install-dismissed', '1');
+  });
+
+  /* ─── Service Worker ─── */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(err => {
+        console.warn('SW registration failed:', err);
+      });
+    });
+  }
+
+  /* ─── Cleanup on hide ─── */
+  document.addEventListener('visibilitychange', () => {
+    if (!audioCtx) return;
+    if (document.hidden && audioCtx.state === 'running') {
+      audioCtx.suspend().catch(() => {});
+    } else if (!document.hidden && running &&
+               (audioCtx.state === 'suspended' || audioCtx.state === 'interrupted')) {
+      audioCtx.resume().catch(() => {
+        // If iOS refuses (gesture required), reset to idle so user can re-engage
+        stopAudio();
+        errEl.textContent = 'Tap to resume';
+      });
+    }
+  });
+
+  // iOS PWA in standalone: pageshow can fire on resume from bfcache
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && audioCtx && audioCtx.state !== 'running' && running) {
+      audioCtx.resume().catch(() => stopAudio());
+    }
+  });
+
+})();
+</script>
+
+</body>
+</html>

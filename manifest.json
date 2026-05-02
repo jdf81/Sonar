@@ -1,0 +1,42 @@
+{
+  "name": "SONAR — Live Audio Visualizer",
+  "short_name": "SONAR",
+  "description": "Record sound from your microphone and watch it transform into live visual equalizers. Six reactive effects, no upload, no data leaves your device.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#06070a",
+  "theme_color": "#06070a",
+  "categories": ["entertainment", "music", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Bars Visualizer",
+      "short_name": "Bars",
+      "url": "./index.html?fx=0",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Particles Visualizer",
+      "short_name": "Particles",
+      "url": "./index.html?fx=4",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tunnel Visualizer",
+      "short_name": "Tunnel",
+      "url": "./index.html?fx=5",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false
+}
